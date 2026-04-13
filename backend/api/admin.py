@@ -23,18 +23,16 @@ class ResolutionBody(BaseModel):
     note: str | None = None
 
 
-def _serialize_request(doc: dict) -> dict:
-    result = {}
-    for k, v in doc.items():
-        if isinstance(v, ObjectId):
-            result[k] = str(v)
-        elif isinstance(v, datetime):
-            result[k] = v.isoformat()
-        elif isinstance(v, dict):
-            result[k] = _serialize_request(v)
-        else:
-            result[k] = v
-    return result
+def _serialize_request(doc) -> dict:
+    if isinstance(doc, list):
+        return [_serialize_request(v) for v in doc]
+    if isinstance(doc, dict):
+        return {k: _serialize_request(v) for k, v in doc.items()}
+    if isinstance(doc, ObjectId):
+        return str(doc)
+    if isinstance(doc, datetime):
+        return doc.isoformat()
+    return doc
 
 
 @router.get("/requests")
