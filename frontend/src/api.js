@@ -92,3 +92,44 @@ export async function closeConversation(sessionId) {
     })
   );
 }
+
+// ── Defect Images ─────────────────────────────────────────────────────────────
+ 
+/**
+ * Upload a defect image for an approved return request.
+ * Sends multipart/form-data — intentionally does NOT use authHeaders()
+ * because that sets Content-Type: application/json which breaks FormData.
+ * The Authorization header is set manually.
+ */
+export async function uploadDefectImage({ pendingRequestId, file }) {
+  const t = token.get();
+  const formData = new FormData();
+  formData.append("file", file);
+ 
+  return handleResponse(
+    await fetch(
+      `${BASE_URL}/defect-image/upload?pending_request_id=${encodeURIComponent(pendingRequestId)}`,
+      {
+        method:  "POST",
+        headers: t ? { Authorization: `Bearer ${t}` } : {},
+        body:    formData,
+      }
+    )
+  );
+}
+ 
+/**
+ * Delete a previously uploaded defect image.
+ * Called when the customer presses × on their image preview.
+ */
+export async function deleteDefectImage({ pendingRequestId }) {
+  return handleResponse(
+    await fetch(
+      `${BASE_URL}/defect-image/${encodeURIComponent(pendingRequestId)}`,
+      {
+        method:  "DELETE",
+        headers: authHeaders(),
+      }
+    )
+  );
+}

@@ -76,6 +76,11 @@ class Settings(BaseSettings):
         description="Secret key for JWT signing"
     )
 
+    # ── Cloudinary ─────────────────────────────────────────────────────────────
+    cloudinary_cloud_name: str = Field(..., description="Cloudinary cloud name — required")
+    cloudinary_api_key:    str = Field(..., description="Cloudinary API key — required")
+    cloudinary_api_secret: str = Field(..., description="Cloudinary API secret — required")
+
     # ── Validators ─────────────────────────────────────────────────────────
     @field_validator("groq_api_key")
     @classmethod

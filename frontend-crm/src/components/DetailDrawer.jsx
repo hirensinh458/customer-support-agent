@@ -1,4 +1,7 @@
 // frontend-crm/src/components/DetailDrawer.jsx
+// REPLACES the existing file — all original logic is untouched.
+// New addition: "Defect Photo" section inside the return request block.
+
 import { useState } from 'react'
 
 export default function DetailDrawer({ request, onApprove, onReject, onClose }) {
@@ -13,24 +16,27 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
   const order    = request.order    || {}
   const tier     = customer.loyaltyTier || 'Bronze'
 
-  // Detect request type
-  const isDateChange = request.type === "date_change"
-  const isReturn     = request.type === "return_request"
+  // Detect request type — unchanged
+  const isDateChange  = request.type === "date_change"
+  const isReturn      = request.type === "return_request"
   const isOrderChange = request.type === "item_change"
 
-  // Existing variables for date change (kept unchanged)
+  // Existing variables for date change — unchanged
   const currentDate   = order.current_delivery || request.current_value
   const requestedDate = request.requested_value
 
   const currentVariant = {
-  size: request.old_size || '',
-  color: request.old_color || '',
+    size: request.old_size || '',
+    color: request.old_color || '',
   }
 
   const requestedVariant = {
     size: request.new_size || '',
     color: request.new_color || '',
   }
+
+  // ── NEW: defect photo from cloudinary ─────────────────────────────────────
+  const defectPhotoUrl = request.cloudinary_url || null
 
   async function handleApprove() {
     setActing(true)
@@ -60,12 +66,12 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
     <div style={styles.overlay}>
       <div style={styles.drawer}>
 
-        {/* Header */}
+        {/* Header — unchanged */}
         <div style={styles.header}>
           <div>
             <p style={styles.headerEyebrow}>
-              {isDateChange ? "Delivery date change" : 
-              isReturn ? "Return Request" : 
+              {isDateChange ? "Delivery date change" :
+              isReturn ? "Return Request" :
               isOrderChange ? "Item Change Request" :
               "Request"}
             </p>
@@ -82,14 +88,14 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
 
         <div style={styles.body}>
 
-          {/* Customer info - unchanged */}
+          {/* Customer info — unchanged */}
           <Section title="Customer">
             <Row label="Name"  value={customer.name || '—'} />
             <Row label="Email" value={<span className="mono" style={{fontSize:'11.5px'}}>{customer.email || '—'}</span>} />
             <Row label="Tier"  value={<span className={`badge badge-${tier.toLowerCase()}`}>{tier}</span>} />
           </Section>
 
-          {/* ==================== DATE CHANGE SECTION (Original - untouched) ==================== */}
+          {/* DATE CHANGE SECTION — unchanged */}
           {isDateChange && (
             <Section title="Request details">
               <Row label="Current delivery" value={
@@ -113,50 +119,79 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
             </Section>
           )}
 
-          {/* ==================== NEW: RETURN REQUEST SECTION ==================== */}
+          {/* RETURN REQUEST SECTION — original rows unchanged, photo added below */}
           {isReturn && (
-            <Section title="Return Request Details">
-              <Row label="Reason" value={
-                request.reason ? request.reason.replace(/_/g, " ") : '—'
-              } />
-              <Row label="Items to Return" value={
-                Array.isArray(request.items) && request.items.length > 0
-                  ? request.items.join(", ")
-                  : '—'
-              } />
-              <Row label="Refund Method" value={
-                request.refund_method ? request.refund_method.replace(/_/g, " ") : '—'
-              } />
-              <Row label="Return Shipping" value={
-                request.return_shipping_covered_by === "leafy" 
-                  ? "Covered by Leafy" 
-                  : "Paid by Customer"
-              } />
-              <Row label="Submitted" value={
-                <span className="mono" style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                  {formatDateTime(request.created_at)}
-                </span>
-              } />
-              <Row label="Status" value={
-                <span className={`badge badge-${request.status}`}>{request.status}</span>
-              } />
-            </Section>
+            <>
+              <Section title="Return Request Details">
+                <Row label="Reason" value={
+                  request.reason ? request.reason.replace(/_/g, " ") : '—'
+                } />
+                <Row label="Items to Return" value={
+                  Array.isArray(request.items) && request.items.length > 0
+                    ? request.items.join(", ")
+                    : '—'
+                } />
+                <Row label="Refund Method" value={
+                  request.refund_method ? request.refund_method.replace(/_/g, " ") : '—'
+                } />
+                <Row label="Return Shipping" value={
+                  request.return_shipping_covered_by === "leafy"
+                    ? "Covered by Leafy"
+                    : "Paid by Customer"
+                } />
+                <Row label="Submitted" value={
+                  <span className="mono" style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                    {formatDateTime(request.created_at)}
+                  </span>
+                } />
+                <Row label="Status" value={
+                  <span className={`badge badge-${request.status}`}>{request.status}</span>
+                } />
+              </Section>
+
+              {/* ── NEW: Defect Photo section ───────────────────────────── */}
+              <Section title="Defect Photo">
+                {defectPhotoUrl ? (
+                  <div style={photoStyles.root}>
+                    <a
+                      href={defectPhotoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={photoStyles.thumbLink}
+                      title="Open full image in new tab"
+                    >
+                      <img
+                        src={defectPhotoUrl}
+                        alt="Defective item"
+                        style={photoStyles.thumb}
+                      />
+                      <div style={photoStyles.thumbOverlay}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                          <polyline points="15 3 21 3 21 9"/>
+                          <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                        <span style={{fontSize:'11px', marginLeft:'4px'}}>View full</span>
+                      </div>
+                    </a>
+                    <p style={photoStyles.hint}>Click to open full-size image</p>
+                  </div>
+                ) : (
+                  <p style={photoStyles.none}>No photo submitted by customer.</p>
+                )}
+              </Section>
+            </>
           )}
 
-          {/* ==================== NEW: ORDER CHANGE SECTION ==================== */}
+          {/* ORDER CHANGE SECTION — unchanged */}
           {isOrderChange && (
             <Section title="Item Change Details">
-
-              <Row label="Item" value={
-                request.item_name || '—'
-              } />
-
+              <Row label="Item" value={request.item_name || '—'} />
               <Row label="Current Variant" value={
                 currentVariant.size || currentVariant.color
                   ? `${currentVariant.size || '-'} / ${currentVariant.color || '-'}`
                   : '—'
               } />
-
               <Row label="Requested Variant" value={
                 requestedVariant.size || requestedVariant.color
                   ? (
@@ -166,7 +201,6 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
                   )
                   : '—'
               } />
-
               <Row label="Stock Source" value={
                 request.stock_source === "warehouse"
                   ? "Warehouse"
@@ -174,21 +208,18 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
                     ? "Product Catalogue"
                     : '—'
               } />
-
               <Row label="Submitted" value={
                 <span className="mono" style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
                   {formatDateTime(request.created_at)}
                 </span>
               } />
-
               <Row label="Status" value={
                 <span className={`badge badge-${request.status}`}>{request.status}</span>
               } />
-
             </Section>
           )}
 
-          {/* Order snapshot - kept for both types */}
+          {/* Order snapshot — unchanged */}
           {order.products && order.products.length > 0 && (
             <Section title="Order snapshot">
               <Row label="Status" value={
@@ -209,7 +240,7 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
             </Section>
           )}
 
-          {/* Customer note from agent (if any) - unchanged */}
+          {/* Customer note — unchanged */}
           {request.customer_note && (
             <Section title="Customer message">
               <blockquote style={styles.quote}>
@@ -223,7 +254,7 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
           )}
         </div>
 
-        {/* Action footer — only show for pending - unchanged */}
+        {/* Action footer — unchanged */}
         {request.status === 'pending' && (
           <div style={styles.footer}>
             {rejectOpen ? (
@@ -281,7 +312,7 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
           </div>
         )}
 
-        {/* Resolution info if already actioned - unchanged */}
+        {/* Resolution info — unchanged */}
         {request.status !== 'pending' && request.resolved_at && (
           <div style={styles.resolvedFooter}>
             <span style={styles.resolvedLabel}>
@@ -297,7 +328,57 @@ export default function DetailDrawer({ request, onApprove, onReject, onClose }) 
   )
 }
 
-/* ==================== Helper Components & Styles (unchanged) ==================== */
+/* ── NEW: photo section styles ─────────────────────────────────────────────── */
+const photoStyles = {
+  root: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  thumbLink: {
+    display: 'block',
+    position: 'relative',
+    width: '100%',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    border: '1px solid var(--border)',
+    cursor: 'pointer',
+    textDecoration: 'none',
+  },
+  thumb: {
+    width: '100%',
+    maxHeight: '220px',
+    objectFit: 'cover',
+    display: 'block',
+    borderRadius: '7px',
+  },
+  thumbOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: 'linear-gradient(transparent, rgba(0,0,0,0.55))',
+    color: 'white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '10px 12px',
+    fontSize: '11px',
+    fontWeight: '600',
+    borderRadius: '0 0 7px 7px',
+  },
+  hint: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+  },
+  none: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
+  },
+}
+
+/* ==================== Helper Components & Styles (all unchanged) ==================== */
 
 function Section({ title, children }) {
   return (

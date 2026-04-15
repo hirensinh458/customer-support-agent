@@ -1,8 +1,11 @@
 // frontend/src/components/ChatWindow.jsx
+// REPLACES the existing file — all original logic is untouched.
+// New additions are marked with ── NEW ── comments.
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageBubble }   from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
+import { uploadDefectImage, deleteDefectImage } from "../api";  // ── NEW ──
 
 const SUGGESTIONS = [
   "Where is my order?",
@@ -11,22 +14,145 @@ const SUGGESTIONS = [
   "Check my account details",
 ];
 
-export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
-  const [input, setInput] = useState("");
-  const bottomRef         = useRef(null);
-  const inputRef          = useRef(null);
-  const messagesRef       = useRef(null);
+// ── NEW: detect if a bot reply is a return-submitted confirmation ─────────────
+// The agent always says "return request has been submitted" (from agent/loop.py
+// APPROVAL WORKFLOW instructions). We key off that phrase to know when to show
+// the photo upload UI.
+function isReturnSubmittedReply(text = "") {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("return request") &&
+    (lower.includes("submitted") || lower.includes("pending"))
+  );
+}
 
-  // ── Auto-scroll to bottom on new messages / loading state ─────────────────
+// ── NEW: extract pending_request_id from bot reply ────────────────────────────
+// The agent reply doesn't contain the DB id, so we fetch it from the backend
+// via a dedicated lightweight endpoint (see routes_additions.py).
+// We store it in state once found so the upload/delete calls have it.
+
+export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
+  const [input, setInput]   = useState("");
+  const bottomRef           = useRef(null);
+  const inputRef            = useRef(null);
+  const messagesRef         = useRef(null);
+
+  // ── NEW: defect photo state ────────────────────────────────────────────────
+  const fileInputRef              = useRef(null);
+  const [pendingRequestId, setPendingRequestId]   = useState(null);  // set when return confirmed
+  const [photoPreview,     setPhotoPreview]       = useState(null);  // local object URL
+  const [photoPublicId,    setPhotoPublicId]       = useState(null);  // cloudinary public_id
+  const [photoUploading,   setPhotoUploading]     = useState(false);
+  const [photoError,       setPhotoError]         = useState(null);
+  const [showPhotoBtn,     setShowPhotoBtn]       = useState(false);  // shows + button
+
+  // ── NEW: watch messages for a return-confirmed reply ──────────────────────
+  // When the agent confirms a return request, show the photo upload button.
+  // We also call the backend to get the pending_request_id for this session.
+  useEffect(() => {
+    const lastBotMsg = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant" && !m.isError);
+
+    if (lastBotMsg && isReturnSubmittedReply(lastBotMsg.content)) {
+      setShowPhotoBtn(true);
+      // Fetch the pending_request_id for this session from the backend.
+      // The backend finds the most recent pending return_request for this user.
+      if (sessionId) {
+        fetch(`/api/defect-image/pending-id?session_id=${encodeURIComponent(sessionId)}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("leafy_token")}`,
+          },
+        })
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data?.pending_request_id) {
+              setPendingRequestId(data.pending_request_id);
+            }
+          })
+          .catch(() => {});  // non-fatal — upload button stays, upload will fail gracefully
+      }
+    }
+  }, [messages, sessionId]);
+
+  // ── NEW: reset photo state when session changes ────────────────────────────
+  useEffect(() => {
+    setShowPhotoBtn(false);
+    setPendingRequestId(null);
+    setPhotoPreview(null);
+    setPhotoPublicId(null);
+    setPhotoError(null);
+    setPhotoUploading(false);
+  }, [sessionId]);
+
+  // ── NEW: handle file selected from the hidden <input type="file"> ─────────
+  const handleFileSelected = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = "";  // reset so same file can be re-selected
+
+    if (!file) return;
+
+    // Client-side guards (backend also validates, this is just UX feedback)
+    const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
+    if (!ALLOWED.includes(file.type)) {
+      setPhotoError("Only JPEG, PNG, or WebP images are allowed.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoError("Image must be under 10 MB.");
+      return;
+    }
+
+    // Show a local preview immediately while uploading
+    const objectUrl = URL.createObjectURL(file);
+    setPhotoPreview(objectUrl);
+    setPhotoError(null);
+    setPhotoUploading(true);
+
+    try {
+      const result = await uploadDefectImage({
+        pendingRequestId,
+        file,
+      });
+      setPhotoPublicId(result.public_id);
+    } catch (err) {
+      // Upload failed — clear the preview and show error
+      URL.revokeObjectURL(objectUrl);
+      setPhotoPreview(null);
+      setPhotoPublicId(null);
+      setPhotoError(err.message || "Upload failed. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }, [pendingRequestId]);
+
+  // ── NEW: handle × button on image preview ─────────────────────────────────
+  const handleRemovePhoto = useCallback(async () => {
+    // Revoke the local object URL to free memory
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoPreview(null);
+    setPhotoError(null);
+
+    // If already uploaded to Cloudinary, delete it
+    if (photoPublicId && pendingRequestId) {
+      try {
+        await deleteDefectImage({ pendingRequestId });
+      } catch (_) {
+        // Best-effort — don't surface this error to the user
+      }
+    }
+    setPhotoPublicId(null);
+  }, [photoPreview, photoPublicId, pendingRequestId]);
+
+  // ── original: auto-scroll ─────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // ── Re-focus input and scroll to bottom whenever session changes ───────────
-  // This fixes the UX problem where switching chats leaves focus in a void.
+  // ── original: re-focus on session change ──────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
-    // Small timeout lets React finish painting the new messages before we scroll
     const t = setTimeout(() => {
       inputRef.current?.focus();
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
@@ -34,11 +160,10 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
     return () => clearTimeout(t);
   }, [sessionId]);
 
-  // ── Auto-grow textarea height ──────────────────────────────────────────────
+  // ── original: auto-grow textarea ──────────────────────────────────────────
   const handleInputChange = (e) => {
     const el = e.target;
     setInput(el.value);
-    // Reset then grow to fit content
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   };
@@ -47,7 +172,6 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
-    // Reset textarea height after clearing
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
@@ -72,7 +196,7 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
   return (
     <div className="chat-window">
 
-      {/* ── Header ── */}
+      {/* ── Header (unchanged) ── */}
       <div className="chat-header">
         <div className="chat-header__brand">
           <div className="chat-header__avatar">
@@ -88,7 +212,7 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
         </div>
       </div>
 
-      {/* ── Messages ── */}
+      {/* ── Messages (unchanged) ── */}
       <div className="chat-messages" ref={messagesRef}>
 
         {isEmpty && (
@@ -130,7 +254,86 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
 
       {/* ── Input ── */}
       <div className="chat-input-area">
+
+        {/* ── NEW: image preview strip (shown above input row when photo is selected) ── */}
+        {photoPreview && (
+          <div className="photo-preview-strip">
+            <div className="photo-preview-wrap">
+              <img
+                src={photoPreview}
+                alt="Defect photo preview"
+                className="photo-preview-thumb"
+              />
+              {/* Uploading spinner overlay */}
+              {photoUploading && (
+                <div className="photo-preview-overlay">
+                  <span className="photo-spinner" />
+                </div>
+              )}
+              {/* × remove button */}
+              {!photoUploading && (
+                <button
+                  className="photo-remove-btn"
+                  onClick={handleRemovePhoto}
+                  title="Remove photo"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              )}
+              {/* Uploaded checkmark */}
+              {!photoUploading && photoPublicId && (
+                <div className="photo-uploaded-badge" title="Uploaded">
+                  <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                    <path d="M1.5 4.5L3.5 6.5L7.5 2.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              )}
+            </div>
+            <p className="photo-preview-label">
+              {photoUploading
+                ? "Uploading…"
+                : photoPublicId
+                  ? "Photo attached to your return request"
+                  : "Processing…"}
+            </p>
+          </div>
+        )}
+
+        {/* ── NEW: photo error message ── */}
+        {photoError && (
+          <p className="photo-error">{photoError}</p>
+        )}
+
         <div className="input-row">
+
+          {/* ── NEW: + button (shown only after return is submitted) ── */}
+          {showPhotoBtn && (
+            <>
+              {/* Hidden real file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: "none" }}
+                onChange={handleFileSelected}
+              />
+              <button
+                className="attach-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || photoUploading || !!photoPreview}
+                title="Attach defect photo"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5"  y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+            </>
+          )}
+
+          {/* ── original textarea (unchanged) ── */}
           <textarea
             ref={inputRef}
             className="chat-input"
@@ -141,6 +344,8 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
             rows={1}
             disabled={loading}
           />
+
+          {/* ── original send button (unchanged) ── */}
           <button
             className={`send-btn ${input.trim() && !loading ? "send-btn--active" : ""}`}
             onClick={handleSend}
@@ -153,8 +358,15 @@ export function ChatWindow({ user, messages, loading, onSend, sessionId }) {
             </svg>
           </button>
         </div>
-      </div>
 
+        {/* ── NEW: helper text shown once the + button appears ── */}
+        {showPhotoBtn && !photoPreview && (
+          <p className="photo-hint">
+            Tap <strong>+</strong> to attach a photo of the defective item (optional)
+          </p>
+        )}
+
+      </div>
     </div>
   );
 }

@@ -15,6 +15,7 @@ from backend.api.websocket import ws_manager
 
 from backend.services.conversation_store import ConversationStore
 from backend.api.dependencies import get_conversations
+from backend.services.cloudinary_service import delete_image
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -351,6 +352,17 @@ async def reject_request(
                 "return_request.resolution_note":  body.note,
             }}
         )
+
+        public_id = req.get("cloudinary_public_id")
+        if public_id:
+            await delete_image(public_id)          # best-effort, won't raise
+            await db.pending_requests.update_one(
+                {"_id": rid},
+                {"$unset": {
+                    "cloudinary_url":       "",
+                    "cloudinary_public_id": "",
+                }}
+            )
 
         rejection_message = (
             "Unfortunately your return request could not be approved. "

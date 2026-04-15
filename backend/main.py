@@ -12,6 +12,7 @@ from backend.core.container import init_container
 from backend.database import connect_db, disconnect_db, get_db
 from backend.database_pg import connect_pg, disconnect_pg
 from backend.api.websocket import ws_manager
+from backend.services.cloudinary_service import init_cloudinary
 
 settings = get_settings()
 
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     await connect_db()          # self-skips if db_tool_mode != mongo
     await connect_pg()          # self-skips if db_tool_mode != postgres
     init_container(get_db())    # builds container after DB is ready
+    init_cloudinary()
 
     logger.info("Application ready.")
     yield
